@@ -1,35 +1,55 @@
 name: NCFC Shop Bot
+
 on:
   schedule:
     - cron: '0 9,17 * * *' # 9 AM and 5 PM UTC
-  workflow_dispatch: # Allows you to run it manually
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.9'
+          cache: 'pip'
 
       - name: Install dependencies
         run: |
           pip install -r requirements.txt
 
-      - name: Run Bot
+      - name: Run Bot with Retry
+        uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 5
+          max_attempts: 3
+          retry_on: error
+          command: python main.py
         env:
           BLUESKY_HANDLE: ${{ secrets.BLUESKY_HANDLE }}
           BLUESKY_APP_PASSWORD: ${{ secrets.BLUESKY_APP_PASSWORD }}
-        run: python main.py
 
-      - name: Commit seen promos
+      - name: Commit and Push changes
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
-          git add seen_promos.json
-          git commit -m "Update seen promos" || exit 0
-          git push
+          
+          if [ -f seen_promos.json ]; then
+            git add seen_promos.json
+            if git diff --staged --quiet; then
+              echo "No changes to seen_promos.json"
+            else
+              git commit -m "Update seen promos [skip ci]"
+              git push
+            fi
+          else
+            echo "seen_promos.json not found. Skipping commit."
+     
+          fi
