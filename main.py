@@ -22,12 +22,14 @@ def load_seen():
     if os.path.exists(SEEN_FILE):
         try:
             with open(SEEN_FILE, "r") as f:
-                return set(json.load(f))
+                data = json.load(f)
+                return set(data) if isinstance(data, list) else set()
         except:
             return set()
     return set()
 
 def save_seen(seen):
+    # Ensure we save as a list for JSON compatibility
     with open(SEEN_FILE, "w") as f:
         json.dump(list(seen), f, indent=2)
 
@@ -40,55 +42,52 @@ def setup_driver():
     return webdriver.Chrome(options=options)
 
 def scrape_banners(driver):
-    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 🏠 Checking Homepage Banners...")
+    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 🏠 Scraping NCFC Shop...")
     driver.get(HOME_URL)
     banners = []
     
     try:
         wait = WebDriverWait(driver, 20)
-        # We look for common carousel classes
-        wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "body")))
+        wait.until(EC.presence_of_element_located((By.TAG_NAME, "body")))
         time.sleep(5) 
 
-        # Find all homepage links that wrap an image
+        # Broad search for banner-like images
         items = driver.find_elements(By.CSS_SELECTOR, "a img")
         
         for img_el in items:
             try:
-                # Get the link the image points to (parent element)
                 link_el = img_el.find_element(By.XPATH, "..")
                 link = link_el.get_attribute("href")
                 img_url = img_el.get_attribute("src")
-                alt_text = img_el.get_attribute("alt") or "New Norwich City Promotion"
+                alt_text = img_el.get_attribute("alt") or "Norwich City FC Official Merchandise"
 
-                # Filter for actual banner-sized images (ignore small icons)
-                if img_url and link and ("banner" in img_url.lower() or "hero" in img_url.lower() or "slider" in img_url.lower()):
-                    if img_url not in [b['img'] for b in banners]:
-                        banners.append({
-                            "id": img_url, 
-                            "img": img_url,
-                            "link": link,
-                            "text": alt_text
-                        })
+                # Logic to find "Hero" or "Banner" images based on size/keywords
+                if img_url and link:
+                    url_lower = img_url.lower()
+                    if any(x in url_lower for x in ["banner", "hero", "slider", "carousel", "promo"]):
+                        if img_url not in [b['img'] for b in banners]:
+                            banners.append({
+                                "id": img_url, 
+                                "img": img_url,
+                                "link": link,
+                                "text": alt_text
+                            })
             except:
                 continue
         
         return banners
     except Exception as e:
-        print(f"❌ Homepage Scrape Failed: {e}")
+        print(f"❌ Scrape Error: {e}")
         return []
 
-def post_with_image(banner, client):
-    print(f"🖼️ Downloading banner: {banner['img']}")
-    resp = requests.get(banner['img'])
+def post_to_bluesky(banner, client):
+    print(f"📥 Downloading: {banner['img']}")
+    resp = requests.get(banner['img'], stream=True)
     if resp.status_code != 200:
         return False
 
-    with open("temp_banner.jpg", "wb") as f:
-        f.write(resp.content)
-
-    with open("temp_banner.jpg", "rb") as f:
-        img_blob = client.upload_blob(f.read())
+    image_data = resp.content
+    img_blob = client.upload_blob(image_data)
 
     embed = {
         "$type": "app.bsky.embed.images",
@@ -96,20 +95,20 @@ def post_with_image(banner, client):
     }
 
     tb = client_utils.TextBuilder()
-    tb.text(f"🔰 NEW AT THE NCFC SHOP:\n\n{banner['text']}\n\n")
-    tb.link("Shop the collection here", banner['link'])
+    tb.text(f"🔰 NCFC SHOP UPDATE:\n\n{banner['text']}\n\n")
+    tb.link("View Deal", banner['link'])
     tb.text("\n\n#NCFC #Canaries #OTBC")
 
     try:
         client.send_post(text=tb, embed=embed)
         return True
     except Exception as e:
-        print(f"❌ Bluesky Post Error: {e}")
+        print(f"❌ Post Error: {e}")
         return False
 
 def main():
     if not BLUESKY_HANDLE or not BLUESKY_APP_PASSWORD:
-        print("❌ Credentials missing.")
+        print("❌ Error: Secrets not found.")
         return
 
     seen = load_seen()
@@ -119,28 +118,29 @@ def main():
         found_banners = scrape_banners(driver)
         
         if FORCE_POST:
-            print("⚡ Force Post Active: Ignoring 'seen' history.")
-            new_banners = found_banners
+            print("⚡ Force Mode: Ignoring history.")
+            to_process = found_banners
         else:
-            new_banners = [b for b in found_banners if b["id"] not in seen]
+            to_process = [b for b in found_banners if b["id"] not in seen]
 
-        if not new_banners:
-            print("✅ No new banners found.")
+        if not to_process:
+            print("✅ No new banners today.")
+            # We still save seen to ensure the file exists for Git
+            save_seen(seen)
             return
 
         client = Client()
         client.login(BLUESKY_HANDLE, BLUESKY_APP_PASSWORD)
 
-        target = new_banners[0]
-        if post_with_image(target, client):
-            seen.add(target["id"])
+        # Post the main featured banner
+        if post_to_bluesky(to_process[0], client):
+            seen.add(to_process[0]["id"])
             save_seen(seen)
-            print("🎉 Success!")
+            print("🎉 Post successful!")
 
     finally:
         driver.quit()
-        if os.path.exists("temp_banner.jpg"):
-            os.remove("temp_banner.jpg")
 
 if __name__ == "__main__":
     main()
+    
