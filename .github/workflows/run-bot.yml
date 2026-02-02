@@ -2,15 +2,14 @@ name: Norwich Shop Bot
 
 on:
   schedule:
-    # Runs every 6 hours (adjust as needed)
     - cron: '0 */6 * * *'
-  workflow_dispatch: # Allows manual testing
+  workflow_dispatch:
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
     permissions:
-      contents: write # Needed to update seen_promos.json
+      contents: write
 
     steps:
       - name: Checkout Repository
@@ -21,6 +20,11 @@ jobs:
         with:
           python-version: '3.11'
           cache: 'pip'
+
+      - name: Setup Chrome
+        uses: browser-actions/setup-chrome@v1
+        with:
+          chrome-version: stable
 
       - name: Install Dependencies
         run: |
@@ -40,12 +44,13 @@ jobs:
           git config --global user.name "ncfc-promo-bot"
           git config --global user.email "bot@github.com"
           git add seen_promos.json
-          # Only commit if the file actually changed to avoid error 1
+          # Only commit if there are changes to avoid exit code 1
           git diff --quiet && git diff --staged --quiet || (git commit -m "Update seen promos [skip ci]" && git push)
 
       - name: Report Failure to Summary
         if: failure()
         run: |
-          echo "### ❌ Bot Run Failed" >> $GITHUB_STEP_SUMMARY
-          echo "The scraper or Bluesky poster encountered an error. Please check the 'Run Bot' logs for the Python Traceback." >> $GITHUB_STEP_
-          SUMMARY
+          # Quoting "$GITHUB_STEP_SUMMARY" prevents the "ambiguous redirect" error
+          echo "### ❌ Bot Run Failed" >> "$GITHUB_STEP_SUMMARY"
+          echo "The scraper or Bluesky poster encountered an error. Check the 'Run Bot' step logs for details." >> "$GITHUB_STEP
+          _SUMMARY"
