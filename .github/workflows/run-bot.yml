@@ -1,56 +1,46 @@
-name: Norwich Shop Bot
+name: NCFC Shop Bot
 
 on:
   schedule:
-    - cron: '0 */6 * * *'
+    # Monday at 09:00 GMT
+    - cron: '0 9 * * 1'
+    # Friday at 17:00 GMT
+    - cron: '0 17 * * 5'
   workflow_dispatch:
+    inputs:
+      force_post:
+        description: 'Ignore "seen" history and post the latest banner anyway?'
+        type: boolean
+        default: false
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-
     steps:
-      - name: Checkout Repository
+      - name: Checkout Code
         uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v4
         with:
-          python-version: '3.11'
-          cache: 'pip'
-
-      - name: Setup Chrome
-        uses: browser-actions/setup-chrome@v1
-        with:
-          chrome-version: stable
+          python-version: '3.10'
 
       - name: Install Dependencies
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install selenium atproto requests
 
-      - name: Run Bot
-        id: bot_run
+      - name: Run Script
         env:
           BLUESKY_HANDLE: ${{ secrets.BLUESKY_HANDLE }}
           BLUESKY_APP_PASSWORD: ${{ secrets.BLUESKY_APP_PASSWORD }}
+          FORCE_POST: ${{ github.event.inputs.force_post || 'false' }}
         run: python main.py
 
-      - name: Update History (Save Seen Promos)
-        if: success()
+      - name: Commit Progress
         run: |
-          git config --global user.name "ncfc-promo-bot"
-          git config --global user.email "bot@github.com"
-          git add seen_promos.json
-          # Only commit if there are changes to avoid exit code 1
-          git diff --quiet && git diff --staged --quiet || (git commit -m "Update seen promos [skip ci]" && git push)
-
-      - name: Report Failure to Summary
-        if: failure()
-        run: |
-          # Quoting "$GITHUB_STEP_SUMMARY" prevents the "ambiguous redirect" error
-          echo "### ❌ Bot Run Failed" >> "$GITHUB_STEP_SUMMARY"
-          echo "The scraper or Bluesky poster encountered an error. Check the 'Run Bot' step logs for details." >> "$GITHUB_STEP
-          _SUMMARY"
+          git config --global user.name "GitHub Action"
+          git config --global user.email "action@github.com"
+          git add seen_banners.json
+          git commit -m "Update seen banners [skip ci]" || echo "No changes to commit"
+          gi
+          t push
