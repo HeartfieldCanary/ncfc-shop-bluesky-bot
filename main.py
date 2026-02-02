@@ -3,7 +3,6 @@ import json
 import time
 from datetime import datetime
 from selenium import webdriver
-from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
@@ -15,7 +14,7 @@ BLUESKY_HANDLE = os.environ.get("BLUESKY_HANDLE")
 BLUESKY_APP_PASSWORD = os.environ.get("BLUESKY_APP_PASSWORD")
 PROMO_URL = "https://shop.canaries.co.uk/page/discountsandpromotions"
 SEEN_FILE = "seen_promos.json"
-KEYWORDS = ["FREE", "% OFF", "SALE", "OFFER", "DISCOUNT", "PRICE DROP", "CLEARANCE"]
+KEYWORDS = ["FREE", "% OFF", "SALE", "OFFER", "DISCOUNT", "PRICE DROP", "CLEARANCE", "REDUCED"]
 
 def load_seen():
     if os.path.exists(SEEN_FILE):
@@ -37,10 +36,9 @@ def setup_driver():
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-gpu")
-    # Mimic a real user to avoid bot detection
+    # Mimic a real user to bypass potential bot-blocking headers
     options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
     
-    # In Selenium 4.6+, we don't need ChromeDriverManager()
     return webdriver.Chrome(options=options)
 
 def scrape_promos(driver):
@@ -49,31 +47,58 @@ def scrape_promos(driver):
     promos = []
     
     try:
-        # Give the page 15 seconds to load the CMS content
-        wait = WebDriverWait(driver, 15)
-        wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, ".cms-content")))
+        # 1. Wait for the page body to load
+        wait = WebDriverWait(driver, 20)
+        wait.until(EC.presence_of_element_located((By.TAG_NAME, "body")))
         
-        # Pull text from headers and paragraphs
-        elements = driver.find_elements(By.CSS_SELECTOR, ".cms-content h2, .cms-content h3, .cms-content p")
+        # 2. Brief wait for any dynamic CMS content to finish loading
+        time.sleep(5) 
+        
+        # 3. Try several common selectors in case the site layout changed
+        selectors = [".cms-content", "main", "article", ".page-content", "#content", ".container"]
+        container = None
+        
+        for selector in selectors:
+            try:
+                found = driver.find_element(By.CSS_SELECTOR, selector)
+                if found and found.text.strip():
+                    container = found
+                    print(f"🎯 Found content container using: {selector}")
+                    break
+            except:
+                continue
+
+        # 4. Fallback: If no specific container found, search the whole page body
+        search_area = container if container else driver.find_element(By.TAG_NAME, "body")
+        
+        # Look for headers, paragraphs, and spans
+        elements = search_area.find_elements(By.CSS_SELECTOR, "h1, h2, h3, h4, p, span")
         
         for el in elements:
             text = el.text.strip()
-            # Valid deals are usually substantial text blocks containing keywords
+            # Filter for deals
             if any(kw in text.upper() for kw in KEYWORDS):
-                if 15 < len(text) < 500:
-                    promos.append({"headline": text, "url": PROMO_URL})
+                if 10 < len(text) < 400:
+                    # Clean up common noise
+                    if "cookie" not in text.lower() and "policy" not in text.lower():
+                        if not any(p['headline'] == text for p in promos):
+                            promos.append({"headline": text, "url": PROMO_URL})
         
+        print(f"📊 Scraper found {len(promos)} unique potential matches.")
         return promos
+        
     except Exception as e:
         print(f"❌ Scraping Failed: {e}")
-        raise e # Essential for the GitHub Action 'Retry' logic to work
+        # Save a screenshot for the GitHub Action logs if it fails
+        driver.save_screenshot("error_screenshot.png")
+        raise e
 
 def post_to_bluesky(promo, client):
-    print(f"📤 Posting: {promo['headline'][:50]}...")
+    print(f"📤 Posting to Bluesky: {promo['headline'][:50]}...")
     tb = client_utils.TextBuilder()
     tb.text(f"🛍️ NCFC SHOP DEAL:\n\n{promo['headline']}\n\n")
     tb.link("View details here", promo['url'])
-    tb.text("\n\n#NCFC #Canaries #OTBC")
+    tb.text("\n\n#NCFC #Canaries #OTBC #NorwichCity")
 
     try:
         client.send_post(text=tb)
@@ -83,15 +108,13 @@ def post_to_bluesky(promo, client):
         return False
 
 def main():
-    # 1. Check Credentials
     if not BLUESKY_HANDLE or not BLUESKY_APP_PASSWORD:
-        print("❌ Error: BLUESKY_HANDLE or BLUESKY_APP_PASSWORD not set in Environment.")
+        print("❌ Error: Missing Bluesky credentials in Environment Secrets.")
         return
 
     seen = load_seen()
     driver = None
     
-    # 2. Scrape
     try:
         driver = setup_driver()
         found_promos = scrape_promos(driver)
@@ -99,27 +122,16 @@ def main():
         if driver:
             driver.quit()
 
-    # 3. Filter and Post
+    # Filter for brand new promos
     new_promos = [p for p in found_promos if p["headline"] not in seen]
     
     if not new_promos:
-        print("✅ Everything up to date. No new promos.")
+        print("✅ Everything up to date. No new promotions found.")
         return
 
     try:
         client = Client()
         client.login(BLUESKY_HANDLE, BLUESKY_APP_PASSWORD)
         
-        # Post only the top match to avoid flooding the feed
-        target = new_promos[0]
-        if post_to_bluesky(target, client):
-            seen.add(target["headline"])
-            save_seen(seen)
-            print("🎉 Success! Check your Bluesky feed.")
-    except Exception as e:
-        print(f"❌ Main Process Error: {e}")
-        raise e
-
-if __name__ == "__main__":
-    main()
-    
+        # Post the first
+        
