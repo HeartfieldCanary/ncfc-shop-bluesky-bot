@@ -1,4 +1,4 @@
 selenium
 webdriver-manager
-requests
 atproto
+requests
