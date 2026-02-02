@@ -30,15 +30,12 @@ def save_seen(seen):
         json.dump(list(seen), f, indent=2)
 
 def setup_driver():
-    """Sets up a headless Chrome driver optimized for GitHub Actions."""
     options = Options()
     options.add_argument("--headless=new")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-gpu")
-    # Mimic a real user to bypass potential bot-blocking headers
     options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-    
     return webdriver.Chrome(options=options)
 
 def scrape_promos(driver):
@@ -47,14 +44,11 @@ def scrape_promos(driver):
     promos = []
     
     try:
-        # 1. Wait for the page body to load
         wait = WebDriverWait(driver, 20)
         wait.until(EC.presence_of_element_located((By.TAG_NAME, "body")))
         
-        # 2. Brief wait for any dynamic CMS content to finish loading
         time.sleep(5) 
         
-        # 3. Try several common selectors in case the site layout changed
         selectors = [".cms-content", "main", "article", ".page-content", "#content", ".container"]
         container = None
         
@@ -68,18 +62,13 @@ def scrape_promos(driver):
             except:
                 continue
 
-        # 4. Fallback: If no specific container found, search the whole page body
         search_area = container if container else driver.find_element(By.TAG_NAME, "body")
-        
-        # Look for headers, paragraphs, and spans
         elements = search_area.find_elements(By.CSS_SELECTOR, "h1, h2, h3, h4, p, span")
         
         for el in elements:
             text = el.text.strip()
-            # Filter for deals
             if any(kw in text.upper() for kw in KEYWORDS):
                 if 10 < len(text) < 400:
-                    # Clean up common noise
                     if "cookie" not in text.lower() and "policy" not in text.lower():
                         if not any(p['headline'] == text for p in promos):
                             promos.append({"headline": text, "url": PROMO_URL})
@@ -89,7 +78,6 @@ def scrape_promos(driver):
         
     except Exception as e:
         print(f"❌ Scraping Failed: {e}")
-        # Save a screenshot for the GitHub Action logs if it fails
         driver.save_screenshot("error_screenshot.png")
         raise e
 
@@ -118,20 +106,30 @@ def main():
     try:
         driver = setup_driver()
         found_promos = scrape_promos(driver)
+        
+        # Filter for brand new promos
+        new_promos = [p for p in found_promos if p["headline"] not in seen]
+        
+        if not new_promos:
+            print("✅ Everything up to date. No new promotions found.")
+            return
+
+        client = Client()
+        client.login(BLUESKY_HANDLE, BLUESKY_APP_PASSWORD)
+        
+        target = new_promos[0]
+        if post_to_bluesky(target, client):
+            seen.add(target["headline"])
+            save_seen(seen)
+            print("🎉 Success! Post updated.")
+
+    except Exception as e:
+        print(f"❌ Main Process Error: {e}")
+        raise e
     finally:
         if driver:
             driver.quit()
 
-    # Filter for brand new promos
-    new_promos = [p for p in found_promos if p["headline"] not in seen]
+if __name__ == "__main__":
+    main()
     
-    if not new_promos:
-        print("✅ Everything up to date. No new promotions found.")
-        return
-
-    try:
-        client = Client()
-        client.login(BLUESKY_HANDLE, BLUESKY_APP_PASSWORD)
-        
-        # Post the first
-        
