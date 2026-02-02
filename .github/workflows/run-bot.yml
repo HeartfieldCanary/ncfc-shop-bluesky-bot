@@ -1,55 +1,51 @@
-name: NCFC Shop Bot
+name: Norwich Shop Bot
 
 on:
   schedule:
-    - cron: '0 9,17 * * *' # 9 AM and 5 PM UTC
-  workflow_dispatch:
+    # Runs every 6 hours (adjust as needed)
+    - cron: '0 */6 * * *'
+  workflow_dispatch: # Allows manual testing
 
 jobs:
-  build:
+  run-bot:
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: write # Needed to update seen_promos.json
 
     steps:
-      - name: Checkout code
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.9'
+          python-version: '3.11'
           cache: 'pip'
 
-      - name: Install dependencies
+      - name: Install Dependencies
         run: |
+          python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run Bot with Retry
-        uses: nick-fields/retry@v3
-        with:
-          timeout_minutes: 5
-          max_attempts: 3
-          retry_on: error
-          command: python main.py
+      - name: Run Bot
+        id: bot_run
         env:
           BLUESKY_HANDLE: ${{ secrets.BLUESKY_HANDLE }}
           BLUESKY_APP_PASSWORD: ${{ secrets.BLUESKY_APP_PASSWORD }}
+        run: python main.py
 
-      - name: Commit and Push changes
+      - name: Update History (Save Seen Promos)
+        if: success()
         run: |
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
-          
-          if [ -f seen_promos.json ]; then
-            git add seen_promos.json
-            if git diff --staged --quiet; then
-              echo "No changes to seen_promos.json"
-            else
-              git commit -m "Update seen promos [skip ci]"
-              git push
-            fi
-          else
-            echo "seen_promos.json not found. Skipping commit."
-     
-          fi
+          git config --global user.name "ncfc-promo-bot"
+          git config --global user.email "bot@github.com"
+          git add seen_promos.json
+          # Only commit if the file actually changed to avoid error 1
+          git diff --quiet && git diff --staged --quiet || (git commit -m "Update seen promos [skip ci]" && git push)
+
+      - name: Report Failure to Summary
+        if: failure()
+        run: |
+          echo "### ❌ Bot Run Failed" >> $GITHUB_STEP_SUMMARY
+          echo "The scraper or Bluesky poster encountered an error. Please check the 'Run Bot' logs for the Python Traceback." >> $GITHUB_STEP_
+          SUMMARY
