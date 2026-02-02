@@ -2,14 +2,12 @@ name: NCFC Shop Bot
 
 on:
   schedule:
-    # Monday at 09:00 GMT
-    - cron: '0 9 * * 1'
-    # Friday at 17:00 GMT
-    - cron: '0 17 * * 5'
+    - cron: '0 9 * * 1'   # Monday 9am GMT
+    - cron: '0 17 * * 5'  # Friday 5pm GMT
   workflow_dispatch:
     inputs:
       force_post:
-        description: 'Ignore "seen" history and post the latest banner anyway?'
+        description: 'Force a post?'
         type: boolean
         default: false
 
@@ -41,6 +39,6 @@ jobs:
           git config --global user.name "GitHub Action"
           git config --global user.email "action@github.com"
           git add seen_banners.json
-          git commit -m "Update seen banners [skip ci]" || echo "No changes to commit"
+          git commit -m "Update seen banners [skip ci]" || echo "No changes"
           gi
           t push
