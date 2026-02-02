@@ -29,7 +29,6 @@ def load_seen():
     return set()
 
 def save_seen(seen):
-    # Ensure we save as a list for JSON compatibility
     with open(SEEN_FILE, "w") as f:
         json.dump(list(seen), f, indent=2)
 
@@ -47,31 +46,43 @@ def scrape_banners(driver):
     banners = []
     
     try:
-        wait = WebDriverWait(driver, 20)
-        wait.until(EC.presence_of_element_located((By.TAG_NAME, "body")))
-        time.sleep(5) 
+        # Give the page plenty of time to load the Javascript carousel
+        time.sleep(8) 
 
-        # Broad search for banner-like images
-        items = driver.find_elements(By.CSS_SELECTOR, "a img")
+        # We are looking for images inside the main homepage promo areas
+        # NCFC shop usually uses specific containers for their big ads
+        targets = [
+            ".home-carousel img", 
+            ".hero-slider img", 
+            ".promo-banner img",
+            ".flexslider img",
+            "main img" # Fallback to any image in the main body
+        ]
         
-        for img_el in items:
-            try:
-                link_el = img_el.find_element(By.XPATH, "..")
-                link = link_el.get_attribute("href")
-                img_url = img_el.get_attribute("src")
-                alt_text = img_el.get_attribute("alt") or "Norwich City FC Official Merchandise"
+        found_elements = driver.find_elements(By.CSS_SELECTOR, ", ".join(targets))
+        print(f"🔎 Found {len(found_elements)} potential images. Filtering...")
 
-                # Logic to find "Hero" or "Banner" images based on size/keywords
-                if img_url and link:
-                    url_lower = img_url.lower()
-                    if any(x in url_lower for x in ["banner", "hero", "slider", "carousel", "promo"]):
-                        if img_url not in [b['img'] for b in banners]:
-                            banners.append({
-                                "id": img_url, 
-                                "img": img_url,
-                                "link": link,
-                                "text": alt_text
-                            })
+        for img_el in found_elements:
+            try:
+                img_url = img_el.get_attribute("src")
+                alt_text = img_el.get_attribute("alt") or "Norwich City FC Promotion"
+                
+                # Try to find a link nearby
+                parent = img_el.find_element(By.XPATH, "./..")
+                link = parent.get_attribute("href") or HOME_URL
+
+                # FILTER: We want large images, not small icons or payment logos
+                width = img_el.size.get('width', 0)
+                height = img_el.size.get('height', 0)
+
+                if img_url and (width > 400 or "banner" in img_url.lower()):
+                    if img_url not in [b['img'] for b in banners]:
+                        banners.append({
+                            "id": img_url, 
+                            "img": img_url,
+                            "link": link,
+                            "text": alt_text
+                        })
             except:
                 continue
         
@@ -96,7 +107,7 @@ def post_to_bluesky(banner, client):
 
     tb = client_utils.TextBuilder()
     tb.text(f"🔰 NCFC SHOP UPDATE:\n\n{banner['text']}\n\n")
-    tb.link("View Deal", banner['link'])
+    tb.link("View on Shop", banner['link'])
     tb.text("\n\n#NCFC #Canaries #OTBC")
 
     try:
@@ -116,6 +127,7 @@ def main():
     
     try:
         found_banners = scrape_banners(driver)
+        print(f"📊 Total banners identified: {len(found_banners)}")
         
         if FORCE_POST:
             print("⚡ Force Mode: Ignoring history.")
@@ -125,18 +137,17 @@ def main():
 
         if not to_process:
             print("✅ No new banners today.")
-            # We still save seen to ensure the file exists for Git
-            save_seen(seen)
             return
 
         client = Client()
         client.login(BLUESKY_HANDLE, BLUESKY_APP_PASSWORD)
 
-        # Post the main featured banner
-        if post_to_bluesky(to_process[0], client):
-            seen.add(to_process[0]["id"])
+        # Post the first one found
+        target = to_process[0]
+        if post_to_bluesky(target, client):
+            seen.add(target["id"])
             save_seen(seen)
-            print("🎉 Post successful!")
+            print(f"🎉 Post successful: {target['text']}")
 
     finally:
         driver.quit()
