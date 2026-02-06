@@ -1,10 +1,14 @@
-name: NCFC Shop Bot
+name: NCFC SHOP BLUESKY BOT
 
 on:
   schedule:
-    # 5pm GMT on Fridays
+    # 5pm GMT on Fridays (0 17 * * 5)
     - cron: '0 17 * * 5'
-  workflow_dispatch: # Allows manual testing
+  workflow_dispatch:
+    # This empty section is what enables the manual "Run workflow" button
+
+permissions:
+  contents: read
 
 jobs:
   run-bot:
@@ -26,5 +30,5 @@ jobs:
         env:
           BLUESKY_HANDLE: ${{ secrets.BLUESKY_HANDLE }}
           BLUESKY_APP_PASSWORD: ${{ secrets.BLUESKY_APP_PASSWORD }}
-        run: python mai
-        n.py
+        run: python ma
+        in.py
