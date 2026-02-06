@@ -1,11 +1,9 @@
-name: NCFC SHOP BLUESKY BOT
+name: "NCFC SHOP BLUESKY BOT"
 
 on:
   schedule:
-    # 5pm GMT on Fridays (0 17 * * 5)
     - cron: '0 17 * * 5'
   workflow_dispatch:
-    # This empty section is what enables the manual "Run workflow" button
 
 permissions:
   contents: read
