@@ -1,12 +1,9 @@
-name: "NCFC SHOP BLUESKY BOT"
+name: NCFC-SHOP-BOT
 
 on:
   schedule:
     - cron: '0 17 * * 5'
   workflow_dispatch:
-
-permissions:
-  contents: read
 
 jobs:
   run-bot:
