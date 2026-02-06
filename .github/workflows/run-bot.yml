@@ -2,18 +2,9 @@ name: NCFC Shop Bot
 
 on:
   schedule:
-    - cron: '0 9 * * 1'   # Monday 9am GMT
-    - cron: '0 17 * * 5'  # Friday 5pm GMT
-  workflow_dispatch:
-    inputs:
-      force_post:
-        description: 'Force a post?'
-        type: boolean
-        default: false
-
-# This section grants the bot permission to save its 'memory' file
-permissions:
-  contents: write
+    # 5pm GMT on Fridays
+    - cron: '0 17 * * 5'
+  workflow_dispatch: # Allows manual testing
 
 jobs:
   run-bot:
@@ -21,9 +12,6 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
-        with:
-          # This ensures we have the full history to push changes back
-          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -32,30 +20,11 @@ jobs:
 
       - name: Install Dependencies
         run: |
-          pip install selenium atproto requests
+          pip install requests beautifulsoup4 atproto
 
       - name: Run Script
         env:
           BLUESKY_HANDLE: ${{ secrets.BLUESKY_HANDLE }}
           BLUESKY_APP_PASSWORD: ${{ secrets.BLUESKY_APP_PASSWORD }}
-          FORCE_POST: ${{ github.event.inputs.force_post || 'false' }}
-        run: python main.py
-
-      - name: Commit Progress
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          
-          # Create the file if it doesn't exist yet
-          touch seen_banners.json
-          
-          git add seen_banners.json
-          
-          # Only commit and push if there is actually a change to save
-          if git diff --staged --quiet; then
-            echo "No new changes to seen_banners.json. Skipping push."
-          else
-            git commit -m "Update seen banners [skip ci]"
-            git push origin HEAD:main
-     
-          fi
+        run: python mai
+        n.py
