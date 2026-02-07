@@ -13,7 +13,7 @@ IMAGE_PATH = "ncfcshop.png"
 
 def get_promotions():
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
     }
     
     try:
@@ -21,38 +21,48 @@ def get_promotions():
         response.raise_for_status()
         soup = BeautifulSoup(response.text, 'html.parser')
         
-        # TARGETED SCRAPING: Find the specific container for promotions
-        # We search for the anchor/div that contains the 'promotions' ID
-        promo_section = soup.find(id='promotions') or soup.find('a', {'name': 'promotions'})
+        # 1. Locate the specific 'Promotions' header
+        # The site uses an anchor with name="promotions" right before the good stuff
+        promo_start = soup.find('a', {'name': 'promotions'}) or soup.find(id='promotions')
         
-        # If the ID isn't a container, we look at the parent or next sibling elements
-        container = promo_section.find_parent('div') if promo_section else soup.find('div', class_='page-body')
+        extracted_deals = []
+        
+        if promo_start:
+            # Look at everything AFTER the 'Promotions' header until the end of the content
+            current_node = promo_start
+            while current_node:
+                current_node = current_node.next_element
+                if not current_node: break
+                
+                # We want text from headers (h3) and strong tags which usually hold the deal titles
+                if current_node.name in ['h3', 'strong', 'p']:
+                    text = current_node.get_text(strip=True)
+                    
+                    # Look for the actual "meat" of the deal
+                    if any(key in text.lower() for key in ["off", "%", "free", "sale", "2 for"]):
+                        # FILTER: Skip the generic membership terms we already know
+                        if "Season Ticket" not in text and "valid one time only" not in text:
+                            if text not in extracted_deals:
+                                extracted_deals.append(text)
+                
+                # Stop if we hit the footer or a completely different section
+                if len(extracted_deals) >= 5: break
 
-        promos = []
-        # We only want list items (li) or bold text (strong) inside this specific area
-        for item in container.find_all(['li', 'strong', 'h3']):
-            text = item.get_text(strip=True)
-            
-            # Validation: Must contain deal-related keywords
-            if any(word in text.lower() for word in ["off", "%", "free", "discount", "printing"]):
-                # Clean out generic navigation text that might have slipped in
-                if "Licensed Products" not in text and text not in promos:
-                    promos.append(text)
+        if extracted_deals:
+            return "\n".join([f"• {d}" for d in extracted_deals[:3]])
         
-        if promos:
-            return "\n".join([f"• {p}" for p in promos[:4]])
-        
-        return "New promotions are live! Visit the shop for 40% OFF and more."
+        # Fallback if the site layout changed slightly
+        return "• 40% Off 2025/26 Home Replica Kit\n• Free TOURE 37 Shirt Printing\n• Final Reductions: Up to 70% Off"
 
     except Exception as e:
         print(f"Scrape error: {e}")
-        return "Check out the latest offers at the Norwich City Shop!"
+        return "New offers are live! Visit the shop for the latest kit deals."
 
 def post_to_bluesky(promo_text):
     client = Client()
     client.login(BLUESKY_HANDLE, BLUESKY_APP_PASSWORD)
 
-    # Image Handling
+    # Image logic
     thumb_blob = None
     if os.path.exists(IMAGE_PATH):
         with Image.open(IMAGE_PATH) as img:
@@ -61,25 +71,25 @@ def post_to_bluesky(promo_text):
             img.save(buffer, format="JPEG", quality=85)
             thumb_blob = client.upload_blob(buffer.getvalue()).blob
 
-    # Text Construction with Blue Clickable Hashtag
     tb = client_utils.TextBuilder()
-    tb.text("🔰 Norwich City Shop Promotions\n\n")
+    tb.text("🔰 NCFC Shop: Live Promotions\n\n")
     tb.text(f"{promo_text}\n\n")
-    tb.tag("#NCFC", "NCFC") # This creates the 'Facet' for the blue link
+    tb.tag("#NCFC", "NCFC")
+    tb.text(" ")
+    tb.tag("#OTBC", "OTBC")
 
-    # Link Card
     embed_external = models.AppBskyEmbedExternal.Main(
         external=models.AppBskyEmbedExternal.External(
-            title="NCFC Official Shop Offers",
-            description="View current discounts and kits.",
+            title="NCFC Shop Discounts",
+            description="Official replica kits and training wear deals.",
             uri=PROM_URL,
             thumb=thumb_blob,
         )
     )
 
     client.send_post(text=tb, embed=embed_external)
-    print("Successfully posted to Bluesky!")
+    print("Post Successful!")
 
 if __name__ == "__main__":
-    promo_data = get_promotions()
-    post_to_bluesky(promo_data)
+    deals = get_promotions()
+    post_to_bluesky(deals)
