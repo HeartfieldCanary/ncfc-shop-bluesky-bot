@@ -20,22 +20,23 @@ def get_promotions():
         response = requests.get(PROM_URL, timeout=15)
         soup = BeautifulSoup(response.text, 'html.parser')
         
-        page_body = soup.select_one(".page-body")
+        # Target the specific container for the page body
+        page_body = soup.find('div', class_='page-body')
         if not page_body:
             return "Check out the latest offers at the Norwich City Shop!"
 
         promos = []
-        # Target headers, list items, and bold text specifically
-        for element in page_body.find_all(['h2', 'h3', 'strong', 'li', 'p']):
+        # Find all text-bearing elements within the body
+        for element in page_body.find_all(['h2', 'h3', 'p', 'li']):
             text = element.get_text(strip=True)
-            # Filter for keywords to ensure we get actual deals
-            if any(word in text for word in ["Off", "%", "Free", "Sale", "Code", "Discount"]):
-                # Clean up nested text and avoid duplicates
+            # Filter for keywords to ensure we capture actual deals
+            if any(word in text for word in ["Off", "%", "Free", "Sale", "Discount", "printing"]):
+                # Clean up and avoid duplicates
                 if text not in promos and len(text) > 5:
                     promos.append(text)
         
         if promos:
-            # Format with bullet points, capped at 4 to stay under character limits
+            # Format the first few valid deals found
             return "\n".join([f"• {p}" for p in promos[:4]])
         
         return "New promotions are live! Visit the shop for details."
@@ -48,7 +49,7 @@ def post_to_bluesky(promo_text):
     client = Client()
     client.login(BLUESKY_HANDLE, BLUESKY_APP_PASSWORD)
 
-    # Image Processing (Compression for Bluesky limits)
+    # Image Processing
     if os.path.exists(IMAGE_PATH):
         with Image.open(IMAGE_PATH) as img:
             if img.mode in ("RGBA", "P"):
@@ -61,24 +62,25 @@ def post_to_bluesky(promo_text):
         print(f"❌ Error: {IMAGE_PATH} not found.")
         return
 
-    # Build the post body
+    # Build the post body using TextBuilder for clickable facets
     tb = client_utils.TextBuilder()
     tb.text("🔰 Norwich City Shop Promotions\n\n")
-    tb.text(promo_text)
-    tb.text("\n\n#NCFC #OTBC #Canaries")
+    tb.text(f"{promo_text}\n\n")
+    # Adding #NCFC as a clickable Tag facet
+    tb.tag("#NCFC", "NCFC")
 
     # Build the Link Card
     embed_external = models.AppBskyEmbedExternal.Main(
         external=models.AppBskyEmbedExternal.External(
             title="NCFC Official Shop Offers",
-            description="View the latest discounts and kits.",
+            description="View current discounts and kits.",
             uri=SHOP_HOME,
             thumb=thumb_blob,
         )
     )
 
     client.send_post(text=tb, embed=embed_external)
-    print("🎉 Post successful!")
+    print("🎉 Post successful with clickable hashtag!")
 
 def main():
     if not BLUESKY_HANDLE or not BLUESKY_APP_PASSWORD:
