@@ -21,72 +21,70 @@ def get_promotions():
         response.raise_for_status()
         soup = BeautifulSoup(response.text, 'html.parser')
         
-        # 1. Locate the specific 'Promotions' header
-        # The site uses an anchor with name="promotions" right before the good stuff
+        # Look for the promotions anchor
         promo_start = soup.find('a', {'name': 'promotions'}) or soup.find(id='promotions')
         
         extracted_deals = []
-        
         if promo_start:
-            # Look at everything AFTER the 'Promotions' header until the end of the content
-            current_node = promo_start
-            while current_node:
-                current_node = current_node.next_element
-                if not current_node: break
+            # Check elements following the anchor
+            for sibling in promo_start.find_all_next(['h3', 'strong', 'li']):
+                text = sibling.get_text(strip=True)
                 
-                # We want text from headers (h3) and strong tags which usually hold the deal titles
-                if current_node.name in ['h3', 'strong', 'p']:
-                    text = current_node.get_text(strip=True)
-                    
-                    # Look for the actual "meat" of the deal
-                    if any(key in text.lower() for key in ["off", "%", "free", "sale", "2 for"]):
-                        # FILTER: Skip the generic membership terms we already know
-                        if "Season Ticket" not in text and "valid one time only" not in text:
-                            if text not in extracted_deals:
-                                extracted_deals.append(text)
+                # We want specific "Flash" deals, not general membership rules
+                if any(key in text.lower() for key in ["off", "%", "free", "sale", "printing"]):
+                    # Ignore the long membership/generic text
+                    if "Season Ticket" not in text and "unique discount" not in text:
+                        if text not in extracted_deals and len(text) > 5:
+                            extracted_deals.append(text)
                 
-                # Stop if we hit the footer or a completely different section
-                if len(extracted_deals) >= 5: break
+                if len(extracted_deals) >= 3: break # Keep it short to stay under 300 chars
 
         if extracted_deals:
-            return "\n".join([f"• {d}" for d in extracted_deals[:3]])
+            return "\n".join([f"• {d}" for d in extracted_deals])
         
-        # Fallback if the site layout changed slightly
-        return "• 40% Off 2025/26 Home Replica Kit\n• Free TOURE 37 Shirt Printing\n• Final Reductions: Up to 70% Off"
+        # Safe fallback if scraping fails
+        return "• 40% Off All Replica Home Kit\n• Free TOURE 37 or FIELD 26 Printing"
 
     except Exception as e:
         print(f"Scrape error: {e}")
-        return "New offers are live! Visit the shop for the latest kit deals."
+        return "Check the shop for the latest promotions!"
 
 def post_to_bluesky(promo_text):
     client = Client()
     client.login(BLUESKY_HANDLE, BLUESKY_APP_PASSWORD)
 
-    # Image logic
+    # Image Processing
     thumb_blob = None
     if os.path.exists(IMAGE_PATH):
         with Image.open(IMAGE_PATH) as img:
             if img.mode in ("RGBA", "P"): img = img.convert("RGB")
             buffer = BytesIO()
-            img.save(buffer, format="JPEG", quality=85)
+            img.save(buffer, format="JPEG", quality=80)
             thumb_blob = client.upload_blob(buffer.getvalue()).blob
 
+    # Build post with character safety
     tb = client_utils.TextBuilder()
-    tb.text("🔰 NCFC Shop: Live Promotions\n\n")
+    tb.text("🔰 Norwich City Shop Promotions\n\n")
+    
+    # Logic to ensure we don't exceed 300 characters
+    # Header (~35) + Hashtag (~10) leaves ~250 for deals
+    if len(promo_text) > 240:
+        promo_text = promo_text[:237] + "..."
+    
     tb.text(f"{promo_text}\n\n")
-    tb.tag("#NCFC", "NCFC")
-    tb.text(" ")
-    tb.tag("#OTBC", "OTBC")
+    tb.tag("#NCFC", "NCFC") # Blue clickable hashtag
 
+    # Embed Link Card
     embed_external = models.AppBskyEmbedExternal.Main(
         external=models.AppBskyEmbedExternal.External(
-            title="NCFC Shop Discounts",
-            description="Official replica kits and training wear deals.",
+            title="NCFC Shop Offers",
+            description="Official discounts and shirt printing.",
             uri=PROM_URL,
             thumb=thumb_blob,
         )
     )
 
+    # Final send
     client.send_post(text=tb, embed=embed_external)
     print("Post Successful!")
 
