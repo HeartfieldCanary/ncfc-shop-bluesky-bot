@@ -10,8 +10,8 @@ BLUESKY_APP_PASSWORD = os.environ.get("BLUESKY_APP_PASSWORD")
 
 PROM_URL = "https://shop.canaries.co.uk/page/discountsandpromotions"
 SHOP_HOME = "https://shop.canaries.co.uk/"
-# New eye-catching image: Vibrant yellow/green fan celebration
-CARD_THUMB_URL = "[attachment_0](attachment)" 
+# Path to the file in your GitHub repository
+IMAGE_PATH = "ncfcshop.png" 
 
 def get_promotions():
     print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 🔰 Checking NCFC Promotions...")
@@ -19,7 +19,7 @@ def get_promotions():
         response = requests.get(PROM_URL, timeout=15)
         soup = BeautifulSoup(response.text, 'html.parser')
         
-        # Pulling the main headline from the promotions page
+        # Pulling the main headline
         promo_headings = soup.select(".page-body h2, .page-body h3, .page-body p strong")
         
         if promo_headings:
@@ -34,9 +34,14 @@ def post_to_bluesky(text):
     client = Client()
     client.login(BLUESKY_HANDLE, BLUESKY_APP_PASSWORD)
 
-    # 1. Download the new eyecatching thumbnail
-    thumb_resp = requests.get(CARD_THUMB_URL)
-    thumb_blob = client.upload_blob(thumb_resp.content).blob
+    # 1. Read the local image file from the repository
+    if os.path.exists(IMAGE_PATH):
+        with open(IMAGE_PATH, 'rb') as f:
+            img_data = f.read()
+        thumb_blob = client.upload_blob(img_data).blob
+    else:
+        print(f"❌ Error: {IMAGE_PATH} not found in repository.")
+        return
 
     # 2. Build the Link Card (External Embed)
     embed_external = models.AppBskyEmbedExternal.Main(
@@ -64,4 +69,5 @@ def main():
     post_to_bluesky(headline)
 
 if __name__ == "__main__":
+
     main()
