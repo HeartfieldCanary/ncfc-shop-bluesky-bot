@@ -82,7 +82,7 @@ def post_to_bluesky(promo_text):
     embed_external = models.AppBskyEmbedExternal.Main(
         external=models.AppBskyEmbedExternal.External(
             title="NCFC Shop Offers",
-            description="View official discounts and kit promotions.",
+            description="View official discounts and promotions.",
             uri=PROM_URL,
             thumb=thumb_blob,
         )
