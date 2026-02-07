@@ -3,6 +3,8 @@ import requests
 from datetime import datetime
 from bs4 import BeautifulSoup
 from atproto import Client, client_utils, models
+from io import BytesIO
+from PIL import Image  # New library for compression
 
 # CONFIG
 BLUESKY_HANDLE = os.environ.get("BLUESKY_HANDLE")
@@ -10,7 +12,6 @@ BLUESKY_APP_PASSWORD = os.environ.get("BLUESKY_APP_PASSWORD")
 
 PROM_URL = "https://shop.canaries.co.uk/page/discountsandpromotions"
 SHOP_HOME = "https://shop.canaries.co.uk/"
-# Path to the file in your GitHub repository
 IMAGE_PATH = "ncfcshop.png" 
 
 def get_promotions():
@@ -18,8 +19,6 @@ def get_promotions():
     try:
         response = requests.get(PROM_URL, timeout=15)
         soup = BeautifulSoup(response.text, 'html.parser')
-        
-        # Pulling the main headline
         promo_headings = soup.select(".page-body h2, .page-body h3, .page-body p strong")
         
         if promo_headings:
@@ -34,16 +33,24 @@ def post_to_bluesky(text):
     client = Client()
     client.login(BLUESKY_HANDLE, BLUESKY_APP_PASSWORD)
 
-    # 1. Read the local image file from the repository
     if os.path.exists(IMAGE_PATH):
-        with open(IMAGE_PATH, 'rb') as f:
-            img_data = f.read()
+        # --- NEW COMPRESSION LOGIC ---
+        with Image.open(IMAGE_PATH) as img:
+            # Convert to RGB if necessary (handles transparency in PNGs)
+            if img.mode in ("RGBA", "P"):
+                img = img.convert("RGB")
+            
+            # Save to a memory buffer as a compressed JPEG
+            buffer = BytesIO()
+            img.save(buffer, format="JPEG", quality=70, optimize=True)
+            img_data = buffer.getvalue()
+        # -----------------------------
+        
         thumb_blob = client.upload_blob(img_data).blob
     else:
-        print(f"❌ Error: {IMAGE_PATH} not found in repository.")
+        print(f"❌ Error: {IMAGE_PATH} not found.")
         return
 
-    # 2. Build the Link Card (External Embed)
     embed_external = models.AppBskyEmbedExternal.Main(
         external=models.AppBskyEmbedExternal.External(
             title="🔰 NCFC Shop Offers",
@@ -53,7 +60,6 @@ def post_to_bluesky(text):
         )
     )
 
-    # 3. Build the Post Body
     tb = client_utils.TextBuilder()
     tb.text(f"🔰 NCFC SHOP UPDATE\n\n{text}\n\n#NCFC")
 
@@ -69,5 +75,4 @@ def main():
     post_to_bluesky(headline)
 
 if __name__ == "__main__":
-
     main()
