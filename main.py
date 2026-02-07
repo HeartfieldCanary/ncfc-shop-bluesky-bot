@@ -68,7 +68,7 @@ def post_to_bluesky(promo_text):
             thumb_blob = client.upload_blob(buffer.getvalue()).blob
 
     tb = client_utils.TextBuilder()
-    tb.text("🔰 NCFC Shop - Current Special Offers\n\n")
+    tb.text("🔰 NCFC Shop - Latest Offers\n\n")
     
     # Ensure text is under the 300-grapheme limit
     if len(promo_text) > 230:
