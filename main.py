@@ -49,7 +49,7 @@ def get_promotions():
             return "\n".join([f"• {d}" for d in extracted_deals[:4]])
         
         # If the scraper still finds nothing, we use the known current deals
-        return "• 40% Off All 2024/25 Replica Home Kit\n• Free TOURE 37 or FIELD 26 Printing"
+        return "Computer says no. Unable to find current special offers."
 
     except Exception as e:
         print(f"Scrape error: {e}")
