@@ -21,37 +21,39 @@ def get_promotions():
         response.raise_for_status()
         soup = BeautifulSoup(response.text, 'html.parser')
         
-        # We only want the bold titles or headings
-        # These usually contain the "40% Off" or "Free Printing" headlines
-        potential_deals = soup.find_all(['h3', 'strong', 'h2'])
+        # 1. Focus only on the main content area to avoid header/footer links
+        content = soup.find(id='promotions') or soup.find('div', class_='page-body') or soup
+        
+        # 2. Get all text and split it into individual lines
+        lines = content.get_text(separator="\n").split("\n")
         
         extracted_deals = []
-        for item in potential_deals:
-            text = item.get_text(strip=True)
-            
-            # CRITERIA:
-            # 1. Must contain a 'deal' keyword
-            # 2. Must be short (Headlines are short, T&Cs are long)
-            # 3. Must not be the boring membership/season ticket stuff
-            keywords = ["off", "%", "free", "sale", "printing", "reduction"]
-            is_deal = any(k in text.lower() for k in keywords)
-            is_short = len(text) < 60  # Promotion titles are rarely longer than this
-            is_not_generic = not any(x in text.lower() for x in ["season ticket", "membership", "unique", "entitles"])
+        # Keywords that indicate a "headline" deal
+        keywords = ["off", "%", "free", "sale", "printing", "reduction", "save"]
+        # Words that indicate boring terms and conditions
+        boring_stuff = ["entitles", "membership", "unique", "season ticket", "valid", "terms", "condition"]
 
-            if is_deal and is_short and is_not_not_generic:
-                if text not in extracted_deals:
-                    extracted_deals.append(text)
+        for line in lines:
+            clean_line = line.strip()
+            # Only look at lines that are likely headlines (between 10 and 70 characters)
+            if 10 < len(clean_line) < 70:
+                lower_line = clean_line.lower()
+                if any(k in lower_line for k in keywords):
+                    if not any(b in lower_line for b in boring_stuff):
+                        if clean_line not in extracted_deals:
+                            extracted_deals.append(clean_line)
 
         if extracted_deals:
-            # Sort to make sure "40% Off" or "Sale" comes first if found
-            extracted_deals.sort(key=lambda x: ("%" in x or "Off" in x), reverse=True)
+            # Always put the biggest discount (%) at the top
+            extracted_deals.sort(key=lambda x: "%" in x, reverse=True)
             return "\n".join([f"• {d}" for d in extracted_deals[:4]])
         
-        return "• 40% Off All Replica Home Kit\n• Free TOURE 37 or FIELD 26 Printing"
+        # If the scraper still finds nothing, we use the known current deals
+        return "• 40% Off All 2024/25 Replica Home Kit\n• Free TOURE 37 or FIELD 26 Printing"
 
     except Exception as e:
         print(f"Scrape error: {e}")
-        return "New offers available at the NCFC Shop!"
+        return "New offers are live! Visit the shop for the latest deals."
 
 def post_to_bluesky(promo_text):
     client = Client()
@@ -68,11 +70,11 @@ def post_to_bluesky(promo_text):
     tb = client_utils.TextBuilder()
     tb.text("🔰 Norwich City Shop Promotions\n\n")
     
-    # Final safety check: Bluesky limit is 300. 
-    # We truncate the middle if it's somehow still too long.
-    clean_text = promo_text if len(promo_text) < 220 else promo_text[:217] + "..."
+    # Ensure text is under the 300-grapheme limit
+    if len(promo_text) > 230:
+        promo_text = promo_text[:227] + "..."
     
-    tb.text(f"{clean_text}\n\n")
+    tb.text(f"{promo_text}\n\n")
     tb.tag("#NCFC", "NCFC")
     tb.text(" ")
     tb.tag("#OTBC", "OTBC")
@@ -80,7 +82,7 @@ def post_to_bluesky(promo_text):
     embed_external = models.AppBskyEmbedExternal.Main(
         external=models.AppBskyEmbedExternal.External(
             title="NCFC Shop Offers",
-            description="View the latest discounts and promotions.",
+            description="View official discounts and kit promotions.",
             uri=PROM_URL,
             thumb=thumb_blob,
         )
