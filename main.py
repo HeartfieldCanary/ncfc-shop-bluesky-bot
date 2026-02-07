@@ -21,39 +21,42 @@ def get_promotions():
         response.raise_for_status()
         soup = BeautifulSoup(response.text, 'html.parser')
         
-        # Look for the promotions anchor
-        promo_start = soup.find('a', {'name': 'promotions'}) or soup.find(id='promotions')
+        # We only want the bold titles or headings
+        # These usually contain the "40% Off" or "Free Printing" headlines
+        potential_deals = soup.find_all(['h3', 'strong', 'h2'])
         
         extracted_deals = []
-        if promo_start:
-            # Check elements following the anchor
-            for sibling in promo_start.find_all_next(['h3', 'strong', 'li']):
-                text = sibling.get_text(strip=True)
-                
-                # We want specific "Flash" deals, not general membership rules
-                if any(key in text.lower() for key in ["off", "%", "free", "sale", "printing"]):
-                    # Ignore the long membership/generic text
-                    if "Season Ticket" not in text and "unique discount" not in text:
-                        if text not in extracted_deals and len(text) > 5:
-                            extracted_deals.append(text)
-                
-                if len(extracted_deals) >= 3: break # Keep it short to stay under 300 chars
+        for item in potential_deals:
+            text = item.get_text(strip=True)
+            
+            # CRITERIA:
+            # 1. Must contain a 'deal' keyword
+            # 2. Must be short (Headlines are short, T&Cs are long)
+            # 3. Must not be the boring membership/season ticket stuff
+            keywords = ["off", "%", "free", "sale", "printing", "reduction"]
+            is_deal = any(k in text.lower() for k in keywords)
+            is_short = len(text) < 60  # Promotion titles are rarely longer than this
+            is_not_generic = not any(x in text.lower() for x in ["season ticket", "membership", "unique", "entitles"])
+
+            if is_deal and is_short and is_not_not_generic:
+                if text not in extracted_deals:
+                    extracted_deals.append(text)
 
         if extracted_deals:
-            return "\n".join([f"• {d}" for d in extracted_deals])
+            # Sort to make sure "40% Off" or "Sale" comes first if found
+            extracted_deals.sort(key=lambda x: ("%" in x or "Off" in x), reverse=True)
+            return "\n".join([f"• {d}" for d in extracted_deals[:4]])
         
-        # Safe fallback if scraping fails
         return "• 40% Off All Replica Home Kit\n• Free TOURE 37 or FIELD 26 Printing"
 
     except Exception as e:
         print(f"Scrape error: {e}")
-        return "Check the shop for the latest promotions!"
+        return "New offers available at the NCFC Shop!"
 
 def post_to_bluesky(promo_text):
     client = Client()
     client.login(BLUESKY_HANDLE, BLUESKY_APP_PASSWORD)
 
-    # Image Processing
     thumb_blob = None
     if os.path.exists(IMAGE_PATH):
         with Image.open(IMAGE_PATH) as img:
@@ -62,29 +65,27 @@ def post_to_bluesky(promo_text):
             img.save(buffer, format="JPEG", quality=80)
             thumb_blob = client.upload_blob(buffer.getvalue()).blob
 
-    # Build post with character safety
     tb = client_utils.TextBuilder()
     tb.text("🔰 Norwich City Shop Promotions\n\n")
     
-    # Logic to ensure we don't exceed 300 characters
-    # Header (~35) + Hashtag (~10) leaves ~250 for deals
-    if len(promo_text) > 240:
-        promo_text = promo_text[:237] + "..."
+    # Final safety check: Bluesky limit is 300. 
+    # We truncate the middle if it's somehow still too long.
+    clean_text = promo_text if len(promo_text) < 220 else promo_text[:217] + "..."
     
-    tb.text(f"{promo_text}\n\n")
-    tb.tag("#NCFC", "NCFC") # Blue clickable hashtag
+    tb.text(f"{clean_text}\n\n")
+    tb.tag("#NCFC", "NCFC")
+    tb.text(" ")
+    tb.tag("#OTBC", "OTBC")
 
-    # Embed Link Card
     embed_external = models.AppBskyEmbedExternal.Main(
         external=models.AppBskyEmbedExternal.External(
             title="NCFC Shop Offers",
-            description="Official discounts and shirt printing.",
+            description="View the latest discounts and promotions.",
             uri=PROM_URL,
             thumb=thumb_blob,
         )
     )
 
-    # Final send
     client.send_post(text=tb, embed=embed_external)
     print("Post Successful!")
 
